@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+env/
+venv/
+cvenv/
+.venv/
+ENV/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+temp*.py
+*.tmp
+
+# Logs
+*.log
+
+# Distribution
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Large/media files
+OldImages/
