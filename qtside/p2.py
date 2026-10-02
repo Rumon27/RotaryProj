@@ -1,27 +1,35 @@
 import sys
 from PySide6.QtWidgets import QLineEdit, QApplication, QWidget, QLabel, QPushButton, QHBoxLayout, QVBoxLayout
+from PySide6.QtCore import Signal
+
+class MainWindow(QWidget):
+     my_signal = Signal(int)
+
+     def __init__(self):
+          super().__init__()
+          self.my_signal.connect(self.printer)
+
+          self.button = QPushButton("Emmit Signal")
+          self.button.clicked.connect(self.emit_signal)
+
+          
+          layout = QVBoxLayout()
+          layout.addWidget(self.button)
+
+          self.setLayout(layout)
+
+     
+     def emit_signal(self):
+          self.my_signal.emit(50)
+     
+     def printer(self, number):
+          print(f"the number: {number}")
+
 
 
 app = QApplication(sys.argv)
 
-window = QWidget()
-window.setWindowTitle("My first app")
-
-main_layout = QVBoxLayout()
-
-row1 = QHBoxLayout()
-row1.addWidget(QLabel("Name: "))
-row1.addWidget(QLineEdit())
-
-row2 = QHBoxLayout()
-row2.addWidget(QLabel("Age: "))
-row2.addWidget(QLineEdit())
-
-main_layout.addLayout(row1)
-main_layout.addLayout(row2)
-
-window.setLayout(main_layout)
+window = MainWindow()
 window.show()
 
 sys.exit(app.exec())
-

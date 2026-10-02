@@ -33,6 +33,7 @@ class MainWindow(QWidget):
           self.setLayout(layout)
           
           
+          
 
      def text_changed(self, text):
           self.str = text 
