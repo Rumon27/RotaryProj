@@ -24,7 +24,7 @@ TAG_DISPLAY_SIZE = 30   # on-screen pixel size of each tag (matches old red_size
 points_data = [
     {"radius": 4.5, "rpm": 20, "angle0": 0, "tag_id": 0},
     {"radius": 2, "rpm": 15, "angle0": 2, "tag_id": 1},
-    {"radius": 2, "rpm": 30, "angle0": 4, "tag_id": 2},
+    {"radius": 3, "rpm": 30, "angle0": 4, "tag_id": 2},
 
     # These will appear after 5 seconds
     {"radius": 4, "rpm": 15, "angle0": 1, "tag_id": 3},

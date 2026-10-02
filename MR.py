@@ -2,15 +2,15 @@ import numpy as np
 import cv2 as cv
 import time
 
-# --- Video source ---
-# any URL cv.VideoCapture can open: an IP camera / MJPEG stream, an RTSP
-# stream, a network-shared desktop stream, or a local video file path.
+import DataBase as db
+
+
 SOURCE_URL = "http://127.0.0.1:5000/video"
 
 # --- Region to crop out of each captured frame ---
 # (x, y, width, height) in pixels, relative to the captured frame itself.
 # Set to None to use the whole frame with no cropping.
-CAPTURE_REGION = None  # e.g. (100, 50, 1000, 1000)
+CAPTURE_REGION = None   # e.g. (100, 50, 1000, 1000)
 
 # --- ArUco setup ---
 # must match the dictionary used in generate_tags.py (DICT_4X4_50)
@@ -40,10 +40,10 @@ def crop_region(frame, region):
         return frame
 
     x, y, w, h = region
-    return frame[y : y + h, x : x + w]
+    return frame[y:y + h, x:x + w]
 
 
-def findBlackCircle(frame):
+def findblackCircle(frame):
     gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
     gray_blurred = cv.GaussianBlur(gray, (7, 7), 0)
 
@@ -104,7 +104,7 @@ def draw_circle(frame, circle, color, label):
     x, y, r = circle
 
     cv.circle(frame, (x, y), max(r, 2), color, 2)
-    
+    cv.circle(frame, (x, y), 2, color, -1)
 
     cv.putText(
         frame, label, (x + r + 5, y - r - 5), cv.FONT_HERSHEY_PLAIN, 1.0, color, 1
@@ -112,109 +112,132 @@ def draw_circle(frame, circle, color, label):
 
 
 def main():
-     cap = openCamera(SOURCE_URL)
+    cap = openCamera(SOURCE_URL)
 
-     cv.namedWindow("frame", cv.WINDOW_NORMAL)
-     cv.resizeWindow("frame", 1000, 1000)
+    conn = db.get_connection()
+    session_id = db.start_session(conn, SOURCE_URL)
+    print(f"session started: {session_id}")
 
-     previous_angles = {}
-     total_angles = {}
-     rpm_lists = {}
-     rpm_avgs = {}
-     missed_frames = {}
+    LOG_INTERVAL_SEC = 0.5   # how often to write a reading per marker
+    last_log_time = {}       # tag_id -> perf_counter() of last logged reading
 
-     MAX_MISSED_FRAMES = 15
+    cv.namedWindow("frame", cv.WINDOW_NORMAL)
+    cv.resizeWindow("frame", 1000, 1000)
 
-     lastTime = time.perf_counter()
-     debug_saved = False
+    previous_angles = {}
+    total_angles = {}
+    rpm_lists = {}
+    rpm_avgs = {}
+    missed_frames = {}
 
-     while True:
-          success, raw_frame = cap.read()
-          if not success:
-               print("No frame, ERROR")
-               break
+    MAX_MISSED_FRAMES = 15
 
-          frame = crop_region(raw_frame, CAPTURE_REGION)
+    lastTime = time.perf_counter()
+    debug_saved = False
 
-          if not debug_saved:
-               cv.imwrite("debug_frame.png", frame)
-               debug_saved = True
-               print("saved debug_frame.png -- check this if detection looks wrong")
-               print(
-                    f"raw frame size: {raw_frame.shape[1]}x{raw_frame.shape[0]}, "
-                    f"cropped size: {frame.shape[1]}x{frame.shape[0]}"
-               )
+    try:
+        while True:
+            success, raw_frame = cap.read()
+            if not success:
+                print("No frame, ERROR")
+                break
 
-          now = time.perf_counter()
-          dt = now - lastTime
-          lastTime = now
+            frame = crop_region(raw_frame, CAPTURE_REGION)
 
-          black, thresh, gray_display = findBlackCircle(frame)
+            if not debug_saved:
+                cv.imwrite("debug_frame.png", frame)
+                debug_saved = True
+                print("saved debug_frame.png -- check this if detection looks wrong")
+                print(f"raw frame size: {raw_frame.shape[1]}x{raw_frame.shape[0]}, "
+                      f"cropped size: {frame.shape[1]}x{frame.shape[0]}")
 
-          markers, _ = find_tagged_markers(frame)
+            now = time.perf_counter()
+            dt = now - lastTime
+            lastTime = now
 
-          draw_circle(frame, black, (255, 255, 0), "black")
+            black, thresh, gray_display = findblackCircle(frame)
 
-          seen_this_frame = set(markers.keys())
+            markers, _ = find_tagged_markers(frame)
 
-          if black is not None:
-               for tag_id, (mx, my, mr) in markers.items():
-                    draw_circle(frame, (mx, my, mr), (255, 0, 255), f"ID {tag_id}")
+            draw_circle(frame, black, (255, 255, 0), "black")
+
+            seen_this_frame = set(markers.keys())
+
+            if black is not None:
+                for tag_id, (mx, my, mr) in markers.items():
+                    draw_circle(frame, (mx, my, mr), (100, 100, 255), f"ID {tag_id}")
 
                     angle = get_angle(black, (mx, my))
 
                     if tag_id not in previous_angles:
-                         previous_angles[tag_id] = angle
-                         total_angles[tag_id] = 0
-                         rpm_lists[tag_id] = []
-                         rpm_avgs[tag_id] = 0
-                         missed_frames[tag_id] = 0
-                         continue
+                        previous_angles[tag_id] = angle
+                        total_angles[tag_id] = 0
+                        rpm_lists[tag_id] = []
+                        rpm_avgs[tag_id] = 0
+                        missed_frames[tag_id] = 0
+                        continue
 
                     diff = angle - previous_angles[tag_id]
 
                     if diff > 180:
-                         diff -= 360
+                        diff -= 360
                     elif diff < -180:
-                         diff += 360
+                        diff += 360
 
                     total_angles[tag_id] += diff
                     previous_angles[tag_id] = angle
                     missed_frames[tag_id] = 0
 
                     if dt > 0:
-                         rpm = (diff / 360) / dt * 60
-                         rpm_lists[tag_id].append(rpm)
+                        rpm = (diff / 360) / dt * 60
+                        rpm_lists[tag_id].append(rpm)
 
-                         if len(rpm_lists[tag_id]) > 50:
-                              rpm_lists[tag_id].pop(0)
+                        if len(rpm_lists[tag_id]) > 20:
+                            rpm_lists[tag_id].pop(0)
 
-                         rpm_avgs[tag_id] = sum(rpm_lists[tag_id]) / len(rpm_lists[tag_id])
+                        rpm_avgs[tag_id] = sum(rpm_lists[tag_id]) / len(rpm_lists[tag_id])
 
-          for tag_id in list(previous_angles.keys()):
-               if tag_id not in seen_this_frame:
+                    # periodic db logging, per marker
+                    last_log = last_log_time.get(tag_id, 0)
+                    if now - last_log >= LOG_INTERVAL_SEC:
+                        bx, by, _ = black
+                        orbital_radius =  float(np.hypot(mx-bx, my-by))
+                        
+                        db.log_reading(
+                            conn, session_id, tag_id,
+                            timestamp=now,
+                            angle=angle,
+                            radius=orbital_radius,
+                            rpm=-rpm_avgs[tag_id],
+                        )
+                        last_log_time[tag_id] = now
+
+            db.commit(conn)
+
+            for tag_id in list(previous_angles.keys()):
+                if tag_id not in seen_this_frame:
                     missed_frames[tag_id] = missed_frames.get(tag_id, 0) + 1
                     if missed_frames[tag_id] > MAX_MISSED_FRAMES:
-                         del previous_angles[tag_id]
-                         del total_angles[tag_id]
-                         del rpm_lists[tag_id]
-                         del rpm_avgs[tag_id]
-                         del missed_frames[tag_id]
+                        del previous_angles[tag_id]
+                        del total_angles[tag_id]
+                        del rpm_lists[tag_id]
+                        del rpm_avgs[tag_id]
+                        del missed_frames[tag_id]
 
-          cv.putText(
-               frame,
-               "RPM per marker:",
-               (10, 30),
-               cv.FONT_HERSHEY_SIMPLEX,
-               0.6,
-               (0, 0, 0),
-               2,
-          )
+            cv.putText(
+                frame,
+                "RPM per marker:",
+                (10, 30),
+                cv.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 0, 0),
+                2,
+            )
 
-          y = 60
-          for tag_id in sorted(rpm_avgs.keys()):
-               rpm = -rpm_avgs[tag_id]
-               cv.putText(
+            y = 60
+            for tag_id in sorted(rpm_avgs.keys()):
+                rpm = -rpm_avgs[tag_id]
+                cv.putText(
                     frame,
                     f"ID {tag_id}: {rpm:6.2f} RPM",
                     (10, y),
@@ -222,16 +245,20 @@ def main():
                     0.6,
                     (0, 150, 0),
                     2,
-               )
-               y += 30
+                )
+                y += 30
 
-          cv.imshow("frame", frame)
+            cv.imshow("frame", frame)
 
-          if cv.waitKey(1) == 27:
-               break
+            if cv.waitKey(1) == 27:
+                break
 
-     cap.release()
-     cv.destroyAllWindows()
+    finally:
+        db.end_session(conn, session_id)
+        conn.close()
+        print(f"session ended: {session_id}")
+        cap.release()
+        cv.destroyAllWindows()
 
 
 if __name__ == "__main__":
